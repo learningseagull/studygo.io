@@ -1,0 +1,49 @@
+const functions = require('firebase-functions')
+const admin = require('firebase-admin')
+const Parser = require('rss-parser')
+
+admin.initializeApp()
+const db = admin.firestore()
+const rssParser = new Parser()
+
+exports.pullTagArticles = functions.pubsub
+  .schedule('every 24 hours')
+  .onRun(async () => {
+    const tagsSnap = await db.collection('tags').get()
+    for (const tagDoc of tagsSnap.docs) {
+      const tag = tagDoc.id
+      const { rssUrl } = tagDoc.data()
+      if (!rssUrl) continue
+      try {
+        const feed = await rssParser.parseURL(rssUrl)
+        const batch = db.batch()
+        feed.items.slice(0, 20).forEach(item => {
+          const id = item.guid || item.link
+          const score = computeScore(item)
+          const ref = db
+            .collection('articles')
+            .doc(tag)
+            .collection('items')
+            .doc(id)
+          batch.set(
+            ref,
+            {
+              title: item.title,
+              url: item.link,
+              publishedAt: item.pubDate,
+              summary: item.contentSnippet || item.content || '',
+              score
+            },
+            { merge: true }
+          )
+        })
+        await batch.commit()
+      } catch {}
+    }
+  })
+
+function computeScore(item) {
+  const ageHours =
+    (Date.now() - new Date(item.pubDate).getTime()) / 3600000
+  return Math.max(0, Math.round(100 - ageHours))
+}
