@@ -1,0 +1,5 @@
+const api = require('./api')
+const crawler = require('./crawler')
+
+exports.api = api.api
+exports.pullTagArticles = crawler.pullTagArticles
